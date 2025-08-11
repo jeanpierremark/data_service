@@ -175,6 +175,7 @@ from collections import defaultdict
 from flask import jsonify
 
 @chercheur_routes.route('/chercheur/last_24_avg/<bucket>/<ville>/<param>', methods=['GET'])
+@token_required
 def get_day_avg(bucket, ville, param):
     message =""
     query = f'''
@@ -192,7 +193,7 @@ def get_day_avg(bucket, ville, param):
     hourly_data = defaultdict(list)
     for table in result:
         for record in table.records:
-            hour_key = record.get_time().strftime("%Y-%m-%d %H")
+            hour_key = record.get_time().strftime("%d-%H")
             hourly_data[hour_key].append(record.get_value())
 
     # Moyenne par heure
@@ -219,84 +220,103 @@ def get_day_avg(bucket, ville, param):
 
 
 
-#Seven Daily avg 
+#Last 7 days avg 
 @chercheur_routes.route('/chercheur/daily_avg_7/<bucket>/<ville>/<param>',methods=['GET'])
+@token_required
 def get_daily_avg(bucket,ville,param):
-    message=""
     query = f'''
         from(bucket: "{bucket}")
-        |> range(start: -7d)
+        |> range(start: -6d)
         |> filter(fn: (r) => r._measurement == "meteo")
-        |> filter(fn: (r)=> r._field=="{param}")
-        |> filter(fn: (r)=> r.ville == "{ville}")
-        |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)
-        |> yield(name: "mean")
-
-
+        |> filter(fn: (r) => r._field == "{param}")
+        |> filter(fn: (r) => r.ville == "{ville}")
+        |> yield(name: "raw")
     '''
 
     result = client.query_api().query(org=org, query=query)
 
-    # Extraction des moyennes journalières
-    daily7_avg = []
+    from collections import defaultdict
+
+    # Dictionnaire pour stocker les valeurs par date
+    daily_values = defaultdict(list)
+
     for table in result:
         for record in table.records:
-            date_str = record.get_time().strftime("%Y-%m-%d")
-            daily7_avg.append({
-                "date": date_str,
-                "moyenne": round(record.get_value())
-            })
+            date_only = record.get_time().strftime("%Y-%m-%d")  # Tronque l'heure
+            daily_values[date_only].append(record.get_value())
 
-    if daily7_avg : 
-        message ="success" 
-        return jsonify({ 
-        "last7d_avg": daily7_avg,
-        "message":message
+    # Calcul de la moyenne par date
+    last7d_avg = []
+    for date, values in daily_values.items():
+        moyenne = sum(values) / len(values)
+        last7d_avg.append({
+            "date": date,
+            "moyenne": round(moyenne)
+        })
+
+    # Tri par date ascendante
+    last7d_avg.sort(key=lambda x: x["date"])
+
+    # Réponse finale
+    if last7d_avg:
+        return jsonify({
+            "last7d_avg": last7d_avg,
+            "message": "success"
+        }), 200
+    else:
+        return jsonify({
+            "message": "empty"
         }), 200
 
-    else :
-        message="empty"
-        return jsonify({ 
-        "message":message
-        }), 204
 
-#Thirty day avg 
+#Last Thirty days avg 
 @chercheur_routes.route('/chercheur/daily_avg_30/<bucket>/<ville>/<param>',methods=['GET'])
+@token_required
 def get_monthly_avg(bucket,ville,param):
-    message=""
     query = f'''
         from(bucket: "{bucket}")
-        |> range(start: -30d)
+        |> range(start: -29d)
         |> filter(fn: (r) => r._measurement == "meteo")
-        |> filter(fn: (r)=> r._field=="{param}")
-        |> filter(fn: (r)=> r.ville == "{ville}")
-        |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)
+        |> filter(fn: (r) => r._field == "{param}")
+        |> filter(fn: (r) => r.ville == "{ville}")
+        |> yield(name: "raw")
     '''
 
     result = client.query_api().query(org=org, query=query)
 
-    # Extraction des moyennes mensuelles 
-    monthly_avg = []
+    from collections import defaultdict
+
+    # Dictionnaire pour stocker les valeurs par date
+    daily_values = defaultdict(list)
+
     for table in result:
         for record in table.records:
-            date_str = record.get_time().strftime("%Y-%m-%d")
-            monthly_avg.append({
-                "date": date_str,
-                "moyenne": round(record.get_value())
-            })
+            date_only = record.get_time().strftime("%Y-%m-%d")  # Tronque l'heure
+            daily_values[date_only].append(record.get_value())
 
-    if monthly_avg : 
-        message ="success" 
-        return jsonify({ 
-        "monthly_avg": monthly_avg,
-        "message":message
-        }), 200
+    # Calcul de la moyenne par date
+    monthly_avg = []
+    for date, values in daily_values.items():
+        moyenne = sum(values) / len(values)
+        monthly_avg.append({
+            "date": date,
+            "moyenne": round(moyenne)
+        })
 
-    else :
-        message="empty"
-        return jsonify({ 
-        "message":message
+    # Tri par date ascendante
+    monthly_avg.sort(key=lambda x: x["date"])
+
+    # Réponse finale
+    if monthly_avg:
+        return jsonify({
+            "monthly_avg": monthly_avg,
+            "message": "success"
         }), 200
+    else:
+        return jsonify({
+            "message": "empty"
+        }), 200
+    
 
 
 
@@ -304,11 +324,12 @@ def get_monthly_avg(bucket,ville,param):
 
 #Get last hour data
 @chercheur_routes.route('/chercheur/last_hour_data/<bucket>/<ville>', methods=['GET'])
+@token_required
 def get_data_source(bucket, ville):
     # Heure UTC actuelle
     maintenant = datetime.now()
 
-    # Heure précédente complète (par ex. si maintenant = 00h15, alors cible = 23h00)
+    # Heure précédente complète 
     heure_cible_debut = maintenant.replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
     heure_cible_fin = heure_cible_debut.replace(minute=59, second=59)
 
@@ -333,7 +354,7 @@ def get_data_source(bucket, ville):
             data = record.values
             # On supprime les champs internes inutiles (_start, _stop, result, etc.)
             info = {
-                "date": record.get_time().strftime("%Y-%m-%d %H"),
+                "date": record.get_time().strftime("%Y-%m-%d %H:%M"),
                 "ville": data.get("ville"),
                 "temperature": data.get("temperature"),
                 "humidite": data.get("humidite"),
@@ -359,6 +380,7 @@ def get_data_source(bucket, ville):
 
 #Get last hour data
 @chercheur_routes.route('/chercheur/current_data/<bucket>/<ville>', methods=['GET'])
+@token_required
 def get_current_data(bucket, ville):
    
     query = f'''
@@ -379,7 +401,7 @@ def get_current_data(bucket, ville):
             data = record.values
             # On supprime les champs internes inutiles (_start, _stop, result, etc.)
             info = {
-                "date": record.get_time().strftime("%Y-%m-%d %H"),
+                "date": record.get_time().strftime("%Y-%m-%d %H:%M"),
                 "ville": data.get("ville"),
                 "temperature": data.get("temperature"),
                 "humidite": data.get("humidite"),
@@ -401,3 +423,151 @@ def get_current_data(bucket, ville):
         "message":message
         }), 200
 
+
+# Last Seven days avg for weather API (moyenne calculée côté Python)
+@chercheur_routes.route('/chercheur/last7weather/<ville>/<param>', methods=['GET'])
+@token_required
+def get_last7weather(ville, param):
+    query = f'''
+        from(bucket: "{bucket_weather}")
+        |> range(start: -6d)
+        |> filter(fn: (r) => r._measurement == "meteo")
+        |> filter(fn: (r) => r._field == "{param}")
+        |> filter(fn: (r) => r.ville == "{ville}")
+        |> yield(name: "raw")
+    '''
+
+    result = client.query_api().query(org=org, query=query)
+
+    from collections import defaultdict
+
+    # Dictionnaire pour stocker les valeurs par date
+    daily_values = defaultdict(list)
+
+    for table in result:
+        for record in table.records:
+            date_only = record.get_time().strftime("%Y-%m-%d")  # Tronque l'heure
+            daily_values[date_only].append(record.get_value())
+
+    # Calcul de la moyenne par date
+    last7_weather = []
+    for date, values in daily_values.items():
+        moyenne = sum(values) / len(values)
+        last7_weather.append({
+            "date": date,
+            "moyenne": round(moyenne)
+        })
+
+    # Tri par date ascendante
+    last7_weather.sort(key=lambda x: x["date"])
+
+    # Réponse finale
+    if last7_weather:
+        return jsonify({
+            "last7_weather": last7_weather,
+            "message": "success"
+        }), 200
+    else:
+        return jsonify({
+            "message": "empty"
+        }), 200
+
+
+#Last Seven days avg for open meteo
+@chercheur_routes.route('/chercheur/last7meteo/<ville>/<param>',methods=['GET'])
+@token_required
+def get_last7meteo(ville,param):
+    query = f'''
+        from(bucket: "{bucket_open}")
+        |> range(start: -6d)
+        |> filter(fn: (r) => r._measurement == "meteo")
+        |> filter(fn: (r) => r._field == "{param}")
+        |> filter(fn: (r) => r.ville == "{ville}")
+        |> yield(name: "raw")
+    '''
+
+    result = client.query_api().query(org=org, query=query)
+
+    from collections import defaultdict
+
+    # Dictionnaire pour stocker les valeurs par date
+    daily_values = defaultdict(list)
+
+    for table in result:
+        for record in table.records:
+            date_only = record.get_time().strftime("%Y-%m-%d")  # Tronque l'heure
+            daily_values[date_only].append(record.get_value())
+
+    # Calcul de la moyenne par date
+    last7_meteo = []
+    for date, values in daily_values.items():
+        moyenne = sum(values) / len(values)
+        last7_meteo.append({
+            "date": date,
+            "moyenne": round(moyenne)
+        })
+
+    # Tri par date ascendante
+    last7_meteo.sort(key=lambda x: x["date"])
+    print(last7_meteo)
+    # Réponse finale
+    if last7_meteo:
+        return jsonify({
+            "last7_meteo": last7_meteo,
+            "message": "success"
+        }), 200
+    else:
+        return jsonify({
+            "message": "empty"
+        }), 200
+    
+
+
+#Last Seven days avg for open weather
+@chercheur_routes.route('/chercheur/last7open/<ville>/<param>',methods=['GET'])
+@token_required
+def get_last7open(ville,param):
+    query = f'''
+        from(bucket: "{bucket_openweather}")
+        |> range(start: -6d)
+        |> filter(fn: (r) => r._measurement == "meteo")
+        |> filter(fn: (r) => r._field == "{param}")
+        |> filter(fn: (r) => r.ville == "{ville}")
+        |> yield(name: "raw")
+    '''
+
+    result = client.query_api().query(org=org, query=query)
+
+    from collections import defaultdict
+
+    # Dictionnaire pour stocker les valeurs par date
+    daily_values = defaultdict(list)
+
+    for table in result:
+        for record in table.records:
+            date_only = record.get_time().strftime("%Y-%m-%d")  # Tronque l'heure
+            daily_values[date_only].append(record.get_value())
+
+    # Calcul de la moyenne par date
+    last7_open = []
+    for date, values in daily_values.items():
+        moyenne = sum(values) / len(values)
+        last7_open.append({
+            "date": date,
+            "moyenne": round(moyenne)
+        })
+
+    # Tri par date ascendante
+    last7_open.sort(key=lambda x: x["date"])
+
+    # Réponse finale
+    if last7_open:
+        return jsonify({
+            "last7_open": last7_open,
+            "message": "success"
+        }), 200
+    else:
+        return jsonify({
+            "message": "empty"
+        }), 200
+    

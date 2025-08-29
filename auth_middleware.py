@@ -292,3 +292,26 @@ def get_token_info():
         'is_expired': False,  # Si on arrive ici, le token n'est pas expiré
         'raw_payload': user.get('full_payload', {})
     }
+
+def get_userId():
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return jsonify({"error": "Token is missing"}), 401
+
+    try:
+        # Extraire le token en supprimant "Bearer "
+        if auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1] 
+        else:
+            token = auth_header  # Si pas de préfixe Bearer
+            
+        payload = pyjwt.decode(token,os.getenv('SECRET_KEY'), algorithms=["HS256"])
+        user_id = payload['user_id']
+        return user_id
+        #print(payload)
+    except pyjwt.ExpiredSignatureError:
+        return jsonify({"error": "Token has expired"}), 401
+    except pyjwt.InvalidTokenError:   
+        return jsonify({"error": "Invalid token"}), 401
+    except IndexError:
+        return jsonify({"error": "Invalid Authorization header format"}), 401

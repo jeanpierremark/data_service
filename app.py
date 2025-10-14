@@ -4,7 +4,6 @@ from sqlalchemy import inspect
 from config import Config
 from models.model import db
 
-from routes.visiteur import visiteur_routes
 from routes.chercheur import chercheur_routes
 
 # Importer le middleware d'authentification
@@ -28,7 +27,6 @@ auth.init_app(app)
 CORS(app)
 
 # Register routes 
-app.register_blueprint(visiteur_routes, url_prefix='/api')
 app.register_blueprint(chercheur_routes, url_prefix='/api')
 
 # Route de test pour vérifier l'authentification

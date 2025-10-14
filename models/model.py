@@ -72,8 +72,7 @@ class RapportAnalyse(db.Model):
     description = db.Column(String(500))
     creation = db.Column(DateTime)
     modification = db.Column(DateTime)
-    resultat= db.Column(String(50))
-    conclusion = db.Column(String(50))
+    fichier = db.Column(String(50))
     user_id = db.Column(Integer, ForeignKey('users.id',ondelete="CASCADE"))
 
 #class Visualisation(db.Model):

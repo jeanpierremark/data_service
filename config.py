@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv 
 from flask_sqlalchemy import SQLAlchemy
-
+import pickle 
 # Charger les variables depuis .env
 load_dotenv()
 
@@ -12,4 +12,5 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
-    
+
+

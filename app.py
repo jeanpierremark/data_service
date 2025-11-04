@@ -3,7 +3,8 @@ from flask_cors import CORS
 from sqlalchemy import inspect 
 from config import Config
 from models.model import db
-
+import pickle
+import redis
 from routes.chercheur import chercheur_routes
 
 # Importer le middleware d'authentification
@@ -83,6 +84,24 @@ def create_tables_if_not_exist():
 with app.app_context():
     create_tables_if_not_exist()
 
+# Charger le modèle et les scalers
+with open("C:/Users/Mark/Downloads/lstm_temperature_predict_v2.sav", "rb") as f:
+    model = pickle.load(f)
+
+with open("C:/Users/Mark/Downloads/scaler_temperature.sav", "rb") as f:
+    scalers_ville = pickle.load(f)
+
+app.config['model'] = model
+app.config['scalers_ville'] = scalers_ville
+
+#Initialisation de Redis 
+try:
+    r = redis.Redis(host='localhost', port=6379, db=0)
+    r.ping()
+except redis.ConnectionError as e:
+    r = None 
+
+app.config['redis_client'] = r
 # Run app
-if __name__ == '__main__':
-    app.run(port=5001, debug=True)
+if __name__ == '__main__': 
+    app.run(port=5001,debug=False, threaded=True, use_reloader=False)

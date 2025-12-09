@@ -1,8 +1,6 @@
 from itertools import combinations
 from flask import Blueprint, Flask, current_app, jsonify
-from influxdb_client import InfluxDBClient
 from influxdb_client.client.write_api import SYNCHRONOUS
-import requests
 from requests_cache import logger
 from influxclient import client
 from sql_server import engine
@@ -15,7 +13,6 @@ import numpy as np
 from scipy.stats import linregress
 from models.model import db,MethodeAnalyse
 from auth_middleware import token_required, chercheur_required , get_current_user , get_userId
-import logging
 from collections import defaultdict
 import json
 
@@ -654,6 +651,19 @@ def get_descriptive_analysis(villes, source, params, period):
         }
 
         r.setex(cache_key, 3600, json.dumps(response))
+        
+        user_id = get_userId()
+        new_method =  MethodeAnalyse(
+            nom = 'Analyse Descriptive',
+            description = "Avoir une description détaillée des valeurs pour les paramètres climatiques en fonction de la zone",
+            categorie = "Descriptive",
+            parametres = param_list,
+            zone = ville_list,
+            complexite = "Moyen",
+            user_id = user_id )
+        
+        db.session.add(new_method)
+        db.session.commit()
         return jsonify(response), 200
 
     except Exception as e:
@@ -734,39 +744,61 @@ def get_trend_analysis(villes, source, params, period):
         }
 
         r.setex(cache_key, 3600, json.dumps(response))
+        user_id = get_userId()
+        new_method =  MethodeAnalyse(
+            nom = 'Analyse Tendance',
+            description = "Analyse de tendance pour les paramètres climatiques en fonction de la zone",
+            categorie = "Tendance",
+            parametres = param_list,
+            zone = ville_list,
+            complexite = "Avancé",
+            user_id = user_id )
+        
+        db.session.add(new_method)
+        db.session.commit()
         return jsonify(response), 200
-
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 # Correlation Analysis
 @chercheur_routes.route('/chercheur/correlation/<villes>/<source>/<params>/<period>', methods=['GET'])
-@token_required
 def get_correlation_analysis(villes, source, params, period):
     try:
         r = current_app.config['redis_client']
         cache_key = f"correlation_{villes}_{source}_{params}_{period}"
 
-        if (cached := r.get(cache_key)):
+        # Vérifier cache Redis
+        cached = r.get(cache_key)
+        if cached:
             return jsonify(json.loads(cached)), 200
 
+        # Vérification du format period
         if not period.endswith('d'):
             return jsonify({'error': 'Format de period invalide'}), 400
+        
         days = int(period[:-1])
         ville_list = villes.split(',')
         param_list = params.split(',')
+        
         if len(param_list) < 2:
             return jsonify({'error': 'Deux paramètres minimum requis'}), 400
 
+        # Dates
         end = datetime.now() - timedelta(days=1)
         start = end - timedelta(days=days - 1)
         start_str = start.isoformat() + "Z"
         end_str = end.isoformat() + "Z"
+
         results = {}
 
+        # Traitement par ville
         for ville in ville_list:
+
+            # Construction du filtre des champs
             field_filters = " or ".join([f'r._field == "{param}"' for param in param_list])
+
+            # Requête Influx
             query = f'''
                 from(bucket: "{source}")
                 |> range(start: {start_str}, stop: {end_str})
@@ -776,17 +808,34 @@ def get_correlation_analysis(villes, source, params, period):
                 |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
                 |> yield(name: "raw")
             '''
+
             result = client.query_api().query(org=org, query=query)
-            data = [{**r.values} for table in result for r in table.records]
+
+            # Extraction des valeurs
+            data = [{**record.values} for table in result for record in table.records]
             df = pd.DataFrame(data)
 
+            # Vérification des données
             if df.empty or df[param_list].dropna().empty:
-                results[ville] = {'message': 'Aucune donnée disponible'}
+                results[ville] = {
+                    'message': 'Aucune donnée disponible',
+                    'data_points': 0
+                }
                 continue
 
-            corr = df[param_list].corr().to_dict()
-            results[ville] = {'correlation_matrix': corr, 'data_points': len(df)}
+            # Calcul de la matrice de corrélation
+            corr_df = df[param_list].corr()
 
+            # Nettoyage 
+            corr_clean = corr_df.replace({np.nan: 0}).to_dict()
+
+            # Enregistrement du résultat pour la ville
+            results[ville] = {
+                'correlation_matrix': corr_clean,
+                'data_points': len(df)
+            }
+
+        # Structure finale
         response = {
             'villes': ville_list,
             'source': source,
@@ -798,7 +847,21 @@ def get_correlation_analysis(villes, source, params, period):
             'message': 'success'
         }
 
+        # Mise en cache 1h
         r.setex(cache_key, 3600, json.dumps(response))
+        user_id = get_userId()
+        new_method =  MethodeAnalyse(
+            nom = 'Analyse Correlation',
+            description = "Voire la relation qui existe entre les paramètres climatiques ",
+            categorie = "Correlation",
+            parametres = param_list,
+            zone = ville_list,
+            complexite = "Avancé",
+            user_id = user_id )
+        
+        db.session.add(new_method)
+        db.session.commit()
+
         return jsonify(response), 200
 
     except Exception as e:
@@ -875,6 +938,18 @@ def get_direct_comparaison(villes, source, params, period):
         }
 
         r.setex(cache_key, 3600, json.dumps(response))
+        user_id = get_userId()
+        new_method =  MethodeAnalyse(
+            nom = 'Analyse Comparative',
+            description = "Voir l'écart entre les mêmes paramètres climatiques pour des zones différentes",
+            categorie = "Comparative",
+            parametres = param_list,
+            zone = ville_list,
+            complexite = "Moyen",
+            user_id = user_id )
+        
+        db.session.add(new_method)
+        db.session.commit()
         return jsonify(response), 200
 
     except Exception as e:
@@ -930,6 +1005,18 @@ def get_descriptive_sql_analysis(villes, params, period):
             'message': 'success'
         }
         r.setex(cache_key, 3600, json.dumps(response))
+        user_id = get_userId()
+        new_method =  MethodeAnalyse(
+            nom = 'Analyse Descriptive',
+            description = "Avoir une description détaillée des valeurs pour les paramètres climatiques en fonction de la zone",
+            categorie = "Descriptive",
+            parametres = param_list,
+            zone = ville_list,
+            complexite = "Moyen",
+            user_id = user_id )
+        
+        db.session.add(new_method)
+        db.session.commit()
         return jsonify(response), 200
 
     except Exception as e:
@@ -997,6 +1084,20 @@ def get_trend_sql_analysis(villes, params, period):
             'message': 'success'
         }
         r.setex(cache_key, 3600, json.dumps(response))
+
+        user_id = get_userId()
+        new_method =  MethodeAnalyse(
+            nom = 'Analyse Tendance',
+            description = "Analyse de tendance pour les paramètres climatiques en fonction de la zone",
+            categorie = "Tendance",
+            parametres = param_list,
+            zone = ville_list,
+            complexite = "Avancé",
+            user_id = user_id )
+        
+        db.session.add(new_method)
+        db.session.commit()
+
         return jsonify(response), 200
 
     except Exception as e:
@@ -1020,8 +1121,11 @@ def get_correlation_sql_analysis(villes, params, period):
         year = int(period[:-1])
         year_start, year_end = 2025 - year, 2024
 
+
         ville_list, param_list = villes.split(','), params.split(',')
         results = {}
+        if len(param_list) < 2:
+            return jsonify({'error': 'Deux paramètres minimum requis'}), 400
 
         with engine.connect() as connection:
             for ville in ville_list:
@@ -1054,6 +1158,18 @@ def get_correlation_sql_analysis(villes, params, period):
             'message': 'success'
         }
         r.setex(cache_key, 3600, json.dumps(response))
+        user_id = get_userId()
+        new_method =  MethodeAnalyse(
+            nom = 'Analyse Correlation',
+            description = "Voire la relation qui existe entre les paramètres climatiques ",
+            categorie = "Correlation",
+            parametres = param_list,
+            zone = ville_list,
+            complexite = "Avancé",
+            user_id = user_id )
+        
+        db.session.add(new_method)
+        db.session.commit()
         return jsonify(response), 200
 
     except Exception as e:
@@ -1070,6 +1186,7 @@ def get_comparaison_sql_server(villes, params, period):
 
     if (cached := r.get(cache_key)):
         return jsonify(json.loads(cached)), 200
+    
 
     try:
         if not period.endswith('y'):
@@ -1079,6 +1196,9 @@ def get_comparaison_sql_server(villes, params, period):
 
         ville_list, param_list = villes.split(','), params.split(',')
         averages, differences = {}, {}
+
+        if len(ville_list) < 2:
+            return jsonify({'error': 'Au moins deux villes requises'}), 400
 
         with engine.connect() as connection:
             for ville in ville_list:
@@ -1115,6 +1235,18 @@ def get_comparaison_sql_server(villes, params, period):
             'message': 'success'
         }
         r.setex(cache_key, 3600, json.dumps(response))
+        user_id = get_userId()
+        new_method =  MethodeAnalyse(
+            nom = 'Analyse Comparative',
+            description = "Voir l'écart entre les mêmes paramètres climatiques pour des zones différentes",
+            categorie = "Comparative",
+            parametres = param_list,
+            zone = ville_list,
+            complexite = "Moyen",
+            user_id = user_id )
+        
+        db.session.add(new_method)
+        db.session.commit()
         return jsonify(response), 200
 
     except Exception as e:

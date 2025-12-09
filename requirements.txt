@@ -1,3 +1,15 @@
 flask
 python_dotenv
 flask-sqlalchemy
+sqlalchemy
+flask_cors
+redis
+influxdb_client
+requests_cache
+pyodbc
+sqlalchemy
+pandas
+scipy
+PyJWT
+psycopg2-binary
+keras

@@ -1,4 +1,4 @@
-from flask import Flask, Blueprint, jsonify
+from flask import Flask,jsonify
 from flask_cors import CORS
 from sqlalchemy import inspect 
 from config import Config
@@ -8,7 +8,7 @@ import redis
 from routes.chercheur import chercheur_routes
 
 # Importer le middleware d'authentification
-from auth_middleware import auth  # Assurez-vous que le chemin est correct
+from auth_middleware import auth  
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -85,10 +85,10 @@ with app.app_context():
     create_tables_if_not_exist()
 
 # Charger le modèle et les scalers
-with open("C:/Users/Mark/Downloads/lstm_temperature_predict_v2.sav", "rb") as f:
+with open("lstm_temperature_predict_v2.sav", "rb") as f:
     model = pickle.load(f)
 
-with open("C:/Users/Mark/Downloads/scaler_temperature.sav", "rb") as f:
+with open("scaler_temperature.sav", "rb") as f:
     scalers_ville = pickle.load(f)
 
 app.config['model'] = model
@@ -104,4 +104,4 @@ except redis.ConnectionError as e:
 app.config['redis_client'] = r
 # Run app
 if __name__ == '__main__': 
-    app.run(port=5001,debug=False, threaded=True, use_reloader=False)
+    app.run(debug=False,port="5001", threaded=True, use_reloader=False)

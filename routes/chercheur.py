@@ -1334,3 +1334,51 @@ def get_mlast_avg(ville, n_days):
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+@chercheur_routes.route('/chercheur/historique/<debut>/<fin>/<params>', methods=['GET'])
+def get_histo_data(debut,fin,params):
+    try:
+        annee_debut = int(debut)
+        annee_fin = int(fin)
+        param_list = params.split(',')
+
+
+        # Validation des années
+        if annee_debut is None or annee_fin is None:
+            return jsonify({
+                "error": "Les paramètres 'debut' et 'fin' sont obligatoires",
+            }), 400
+
+        if not (2000 <= annee_debut <= 2024) or not (2000 <= annee_fin <= 2024):
+            return jsonify({
+                "error": "Les années doivent être comprises entre 2000 et 2024 et 2000"
+            }), 400
+
+        if annee_debut > annee_fin:
+            return jsonify({
+                "error": "L'année de début ne peut pas être supérieure à l'année de fin"
+            }), 400
+
+        sql = text("""
+            SELECT * FROM FaitClimat
+            WHERE YEAR(date) BETWEEN :debut AND :fin
+            ORDER BY date DESC
+        """)
+
+        with engine.connect() as conn:
+            result = conn.execute(sql, {"debut": annee_debut, "fin": annee_fin})
+            rows = result.fetchall()
+            columns = result.keys()
+
+        data = [dict(zip(columns, row)) for row in rows]
+
+        return jsonify({
+            "periode": {"debut": annee_debut, "fin": annee_fin},
+            "nombre_lignes": len(data),
+            "data": data
+        }), 200
+
+    except Exception as e:
+        print("Erreur:", e)
+        return jsonify({"error": "Erreur serveur lors de la récupération des données"}), 500
